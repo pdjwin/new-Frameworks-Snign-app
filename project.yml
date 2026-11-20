@@ -1,0 +1,41 @@
+name: NX2AppleSigner
+
+options:
+  bundleIdPrefix: com.pdjwin
+
+  deploymentTarget:
+    iOS: "15.0"
+
+packages:
+  RorkSign:
+    url: https://github.com/rorkai/rork-sign.git
+    from: 0.6.5
+
+targets:
+  NX2AppleSigner:
+    type: application
+    platform: iOS
+
+    sources:
+      - path: Sources
+
+    dependencies:
+      - package: RorkSign
+        product: RorkSign
+
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: NX2Apple Signer
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.pdjwin.nx2applesigner
+        PRODUCT_NAME: NX2AppleSigner
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        IPHONEOS_DEPLOYMENT_TARGET: "15.0"
+        CODE_SIGNING_ALLOWED: NO
