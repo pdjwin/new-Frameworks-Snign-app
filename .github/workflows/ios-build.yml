@@ -1,0 +1,89 @@
+name: NX2Apple Signer Auto Build
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Sources/**'
+      - 'project.yml'
+      - 'Info.plist'
+      - '.github/workflows/ios-build.yml'
+
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 새 커밋이 들어오면 이전 빌드를 취소하고 최신 빌드만 진행
+concurrency:
+  group: nx2apple-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build iOS App
+    runs-on: xcode-27
+
+    steps:
+
+      # 1. GitHub 저장소 가져오기
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Xcode 27.2 선택
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_27.2.app
+          xcodebuild -version
+
+      # 3. XcodeGen 설치
+      - name: Install XcodeGen
+        run: |
+          brew install xcodegen
+
+      # 4. Xcode 프로젝트 생성
+      - name: Generate Xcode Project
+        run: |
+          xcodegen generate
+
+      # 5. Swift Package 의존성 다운로드
+      - name: Resolve Packages
+        run: |
+          xcodebuild \
+            -resolvePackageDependencies \
+            -project NX2AppleSigner.xcodeproj \
+            -scheme NX2AppleSigner
+
+      # 6. iOS 앱 빌드
+      - name: Build iOS Application
+        run: |
+          xcodebuild \
+            -project NX2AppleSigner.xcodeproj \
+            -scheme NX2AppleSigner \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      # 7. IPA 폴더 생성
+      - name: Package IPA
+        run: |
+          mkdir -p Payload
+
+          cp -R \
+            build/Build/Products/Release-iphoneos/NX2AppleSigner.app \
+            Payload/
+
+          zip -qry NX2AppleSigner.ipa Payload
+
+      # 8. 빌드 결과물 업로드
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: NX2AppleSigner-iOS
+          path: NX2AppleSigner.ipa
+          if-no-files-found: error
+          retention-days: 14
