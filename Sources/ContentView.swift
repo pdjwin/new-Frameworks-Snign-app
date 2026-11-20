@@ -94,6 +94,7 @@ struct ContentView: View {
                 height: geometry.size.height
             )
         }
+
         .fileImporter(
             isPresented: $showSourcePicker,
             allowedContentTypes: [.folder],
@@ -103,8 +104,11 @@ struct ContentView: View {
             handlePicker(
                 result,
                 key: "sourceBookmark"
-            ) { sourceURL = $0 }
+            ) {
+                sourceURL = $0
+            }
         }
+
         .fileImporter(
             isPresented: $showDestinationPicker,
             allowedContentTypes: [.folder],
@@ -114,8 +118,11 @@ struct ContentView: View {
             handlePicker(
                 result,
                 key: "destinationBookmark"
-            ) { destinationURL = $0 }
+            ) {
+                destinationURL = $0
+            }
         }
+
         .fileImporter(
             isPresented: $showP12Picker,
             allowedContentTypes: [.data],
@@ -125,8 +132,11 @@ struct ContentView: View {
             handlePicker(
                 result,
                 key: "p12Bookmark"
-            ) { p12URL = $0 }
+            ) {
+                p12URL = $0
+            }
         }
+
         .fileImporter(
             isPresented: $showProfilePicker,
             allowedContentTypes: [.data],
@@ -136,13 +146,17 @@ struct ContentView: View {
             handlePicker(
                 result,
                 key: "profileBookmark"
-            ) { profileURL = $0 }
+            ) {
+                profileURL = $0
+            }
         }
-        .onAppear {
 
+        .onAppear {
             restoreSavedPaths()
         }
     }
+
+    // MARK: - Sidebar
 
     private var sidebar: some View {
 
@@ -229,6 +243,8 @@ struct ContentView: View {
         )
     }
 
+    // MARK: - Detail
+
     private var detail: some View {
 
         VStack(spacing: 0) {
@@ -280,6 +296,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Framework Page
+
     private var frameworkPage: some View {
 
         VStack(alignment: .leading, spacing: 18) {
@@ -304,6 +322,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Destination Page
+
     private var destinationPage: some View {
 
         VStack(alignment: .leading, spacing: 18) {
@@ -323,10 +343,12 @@ struct ContentView: View {
             }
 
             infoBox(
-                "기존 파일과 내용이 다르면 기존 파일을 백업한 다음 교체합니다. 교체에 실패하면 기존 파일을 복원합니다."
+                "Framework 결과물은 지정한 저장 폴더 바로 아래에 저장됩니다."
             )
         }
     }
+
+    // MARK: - Certificate Page
 
     private var certificatePage: some View {
 
@@ -387,6 +409,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Signing Page
+
     private var signingPage: some View {
 
         VStack(alignment: .leading, spacing: 18) {
@@ -431,12 +455,13 @@ struct ContentView: View {
                 isOn: $settings.deleteFailedCopies
             )
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
 
                 HStack {
 
                     Text(progressText)
                         .font(.subheadline)
+                        .lineLimit(2)
 
                     Spacer()
 
@@ -447,6 +472,10 @@ struct ContentView: View {
                 }
 
                 ProgressView(value: progressValue)
+
+                Text("실시간 작업 진행률")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             .padding(16)
             .background(cardBackground)
@@ -487,13 +516,15 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Logs Page
+
     private var logsPage: some View {
 
         VStack(alignment: .leading, spacing: 14) {
 
             sectionTitle(
                 "작업 로그",
-                subtitle: "서명 과정에서 발생한 작업 결과를 확인합니다."
+                subtitle: "파일 복사, 서명, 저장 및 오류 내역을 실시간으로 확인합니다."
             )
 
             HStack(spacing: 10) {
@@ -523,30 +554,151 @@ struct ContentView: View {
                 )
             }
 
-            VStack(alignment: .leading, spacing: 8) {
+            VStack(alignment: .leading, spacing: 10) {
 
-                ForEach(
-                    Array(logs.enumerated()),
-                    id: \.offset
-                ) { _, message in
+                HStack {
 
-                    Text(message)
-                        .font(.system(size: 12, design: .monospaced))
+                    Text("실시간 로그")
+                        .font(.headline)
+
+                    Spacer()
+
+                    Text("\(logs.count)개 항목")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                HStack(spacing: 10) {
+
+                    Text(progressText)
+                        .font(.caption)
+                        .lineLimit(2)
+
+                    Spacer()
+
+                    Text(
+                        "\(Int(progressValue * 100))%"
+                    )
+                    .font(.caption.monospacedDigit())
+                }
+
+                ProgressView(value: progressValue)
+
+                Divider()
+
+                if logs.isEmpty {
+
+                    Text("아직 기록된 로그가 없습니다.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                         .frame(
                             maxWidth: .infinity,
-                            alignment: .leading
+                            minHeight: 150
                         )
-                        .padding(8)
-                        .background(
-                            Color(uiColor: .tertiarySystemGroupedBackground)
-                        )
-                        .clipShape(
-                            RoundedRectangle(cornerRadius: 6)
-                        )
+
+                } else {
+
+                    LazyVStack(alignment: .leading, spacing: 7) {
+
+                        ForEach(
+                            Array(logs.enumerated()),
+                            id: \.offset
+                        ) { _, message in
+
+                            HStack(alignment: .top, spacing: 8) {
+
+                                Circle()
+                                    .fill(logColor(message))
+                                    .frame(width: 7, height: 7)
+                                    .padding(.top, 5)
+
+                                Text(message)
+                                    .font(
+                                        .system(
+                                            size: 12,
+                                            design: .monospaced
+                                        )
+                                    )
+                                    .textSelection(.enabled)
+                                    .frame(
+                                        maxWidth: .infinity,
+                                        alignment: .leading
+                                    )
+                            }
+                            .padding(.vertical, 3)
+                        }
+                    }
                 }
+            }
+            .padding(14)
+            .background(cardBackground)
+
+            HStack {
+
+                Button {
+
+                    logs.removeAll()
+
+                } label: {
+
+                    Label(
+                        "로그 지우기",
+                        systemImage: "trash"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .disabled(isSigning)
+
+                Spacer()
+
+                Button {
+
+                    UIPasteboard.general.string =
+                        logs.joined(separator: "\n")
+
+                } label: {
+
+                    Label(
+                        "로그 복사",
+                        systemImage: "doc.on.doc"
+                    )
+                }
+                .buttonStyle(.bordered)
+                .disabled(logs.isEmpty)
             }
         }
     }
+
+    // MARK: - Log Colors
+
+    private func logColor(
+        _ message: String
+    ) -> Color {
+
+        if message.contains("실패") ||
+            message.contains("오류") ||
+            message.contains("중단") {
+            return .red
+        }
+
+        if message.contains("완료") ||
+            message.contains("성공") {
+            return .green
+        }
+
+        if message.contains("복사") ||
+            message.contains("저장") {
+            return .blue
+        }
+
+        if message.contains("건너뜀") {
+            return .orange
+        }
+
+        return .secondary
+    }
+
+    // MARK: - Common UI
 
     private var cardBackground: some View {
 
@@ -675,6 +827,8 @@ struct ContentView: View {
         .background(cardBackground)
     }
 
+    // MARK: - File Picker
+
     private func handlePicker(
         _ result: Result<[URL], Error>,
         key: String,
@@ -704,6 +858,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Restore Paths
+
     private func restoreSavedPaths() {
 
         sourceURL = settings.restoreBookmark(
@@ -722,6 +878,8 @@ struct ContentView: View {
             key: "profileBookmark"
         )
     }
+
+    // MARK: - Start Signing
 
     private func startSigning() {
 
@@ -764,6 +922,10 @@ struct ContentView: View {
 
         selectedPage = .logs
 
+        let currentPassword = settings.password
+        let currentBundleID = settings.bundleIdentifier
+        let shouldDeleteFailed = settings.deleteFailedCopies
+
         DispatchQueue.global(
             qos: .userInitiated
         ).async {
@@ -775,15 +937,17 @@ struct ContentView: View {
                     destinationURL: destinationURL,
                     p12URL: p12URL,
                     profileURL: profileURL,
-                    password: settings.password,
-                    bundleIdentifier: settings.bundleIdentifier,
-                    deleteFailedCopies: settings.deleteFailedCopies
+                    password: currentPassword,
+                    bundleIdentifier: currentBundleID,
+                    deleteFailedCopies: shouldDeleteFailed
                 ) { message, progress in
 
                     DispatchQueue.main.async {
 
                         self.progressText = message
                         self.progressValue = progress
+
+                        self.logs.append(message)
                     }
                 }
 
@@ -795,7 +959,27 @@ struct ContentView: View {
                     self.replacedCount = result.replaced
 
                     self.logs.append(
-                        contentsOf: result.messages
+                        "--------------------------------"
+                    )
+
+                    self.logs.append(
+                        "최종 작업 결과"
+                    )
+
+                    self.logs.append(
+                        "성공: \(result.success)"
+                    )
+
+                    self.logs.append(
+                        "교체: \(result.replaced)"
+                    )
+
+                    self.logs.append(
+                        "건너뜀: \(result.skipped)"
+                    )
+
+                    self.logs.append(
+                        "실패: \(result.failed)"
                     )
 
                     self.isSigning = false
@@ -806,7 +990,7 @@ struct ContentView: View {
                 DispatchQueue.main.async {
 
                     self.logs.append(
-                        "작업 실패: \(error.localizedDescription)"
+                        "작업 중단: \(error.localizedDescription)"
                     )
 
                     self.isSigning = false
