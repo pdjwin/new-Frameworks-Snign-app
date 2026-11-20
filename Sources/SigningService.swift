@@ -20,11 +20,14 @@ final class SigningService {
 
     typealias ProgressHandler = (String, Double) -> Void
 
+    // MARK: - Logging
+
     private func log(
         _ message: String,
         progress: Double,
         handler: ProgressHandler
     ) {
+
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
 
@@ -35,6 +38,8 @@ final class SigningService {
             min(max(progress, 0), 1)
         )
     }
+
+    // MARK: - Main Signing
 
     func signFolder(
         sourceURL: URL,
@@ -52,6 +57,7 @@ final class SigningService {
         let fm = FileManager.default
 
         guard !bundleIdentifier.isEmpty else {
+
             throw NSError(
                 domain: "NX2AppleSigner",
                 code: 1001,
@@ -61,6 +67,8 @@ final class SigningService {
                 ]
             )
         }
+
+        // MARK: Security Scope
 
         let sourceAccess =
             sourceURL.startAccessingSecurityScopedResource()
@@ -100,6 +108,7 @@ final class SigningService {
         )
 
         guard fm.fileExists(atPath: sourceURL.path) else {
+
             throw NSError(
                 domain: "NX2AppleSigner",
                 code: 1002,
@@ -111,6 +120,7 @@ final class SigningService {
         }
 
         guard fm.fileExists(atPath: destinationURL.path) else {
+
             throw NSError(
                 domain: "NX2AppleSigner",
                 code: 1003,
@@ -122,10 +132,12 @@ final class SigningService {
         }
 
         log(
-            "원본 폴더 확인 완료: \(sourceURL.lastPathComponent)",
+            "원본 폴더 확인 완료",
             progress: 0.02,
             handler: progress
         )
+
+        // MARK: Certificate Validation
 
         let profileData = try Data(contentsOf: profileURL)
         let credentialData = try Data(contentsOf: p12URL)
@@ -136,17 +148,19 @@ final class SigningService {
             handler: progress
         )
 
-        _ = try RorkSigner.validatedTeamIdentifier(
+        let teamID = try RorkSigner.validatedTeamIdentifier(
             provisioningProfileData: profileData,
             credentialData: credentialData,
             password: password
         )
 
         log(
-            "인증서 검증 완료",
+            "인증서 검증 완료 - Team ID: \(teamID)",
             progress: 0.05,
             handler: progress
         )
+
+        // MARK: Workspace
 
         let documents = fm.urls(
             for: .documentDirectory,
@@ -169,17 +183,10 @@ final class SigningService {
         )
 
         defer {
-
             try? fm.removeItem(at: workspace)
-
-            log(
-                "임시 작업 폴더 정리 완료",
-                progress: 1.0,
-                handler: progress
-            )
         }
 
-        // MARK: - 원본 파일 목록 확인
+        // MARK: Source File Enumeration
 
         log(
             "원본 파일 목록 검색 중",
@@ -190,14 +197,11 @@ final class SigningService {
         guard let enumerator = fm.enumerator(
             at: sourceURL,
             includingPropertiesForKeys: [
-                .isRegularFileKey,
-                .isDirectoryKey,
-                .fileSizeKey
+                .isRegularFileKey
             ],
-            options: [
-                .skipsHiddenFiles
-            ]
+            options: []
         ) else {
+
             throw NSError(
                 domain: "NX2AppleSigner",
                 code: 1004,
@@ -209,30 +213,25 @@ final class SigningService {
         }
 
         var sourceFiles: [URL] = []
-        var totalBytes: Int64 = 0
 
         while let fileURL = enumerator.nextObject() as? URL {
 
             let values = try fileURL.resourceValues(
-                forKeys: [
-                    .isRegularFileKey,
-                    .fileSizeKey
-                ]
+                forKeys: [.isRegularFileKey]
             )
 
             if values.isRegularFile == true {
-
                 sourceFiles.append(fileURL)
-
-                totalBytes += Int64(
-                    values.fileSize ?? 0
-                )
             }
         }
 
-        let totalFiles = sourceFiles.count
+        // 경로 순서를 고정하여 복사 순서 안정화
+        sourceFiles.sort {
+            relativePath(of: $0, under: sourceURL)
+                < relativePath(of: $1, under: sourceURL)
+        }
 
-        let totalGB = Double(totalBytes) / 1_073_741_824
+        let totalFiles = sourceFiles.count
 
         log(
             "검색 완료: \(totalFiles)개 파일",
@@ -240,16 +239,8 @@ final class SigningService {
             handler: progress
         )
 
-        log(
-            String(
-                format: "전체 용량: %.2f GB",
-                totalGB
-            ),
-            progress: 0.09,
-            handler: progress
-        )
-
         guard totalFiles > 0 else {
+
             throw NSError(
                 domain: "NX2AppleSigner",
                 code: 1005,
@@ -260,7 +251,7 @@ final class SigningService {
             )
         }
 
-        // MARK: - 원본 복사
+        // MARK: Copy Source
 
         log(
             "원본 복사 시작",
@@ -273,22 +264,27 @@ final class SigningService {
             withIntermediateDirectories: true
         )
 
-        var copiedBytes: Int64 = 0
-
         for (index, fileURL) in sourceFiles.enumerated() {
 
-            let relativePath = String(
-                fileURL.path.dropFirst(
-                    sourceURL.path.count
-                )
+            let relativeURL = relativePath(
+                of: fileURL,
+                under: sourceURL
             )
-
-            let relativeURL = relativePath.hasPrefix("/")
-                ? String(relativePath.dropFirst())
-                : relativePath
 
             let targetURL = copiedSource
                 .appendingPathComponent(relativeURL)
+
+            let ratioBefore =
+                Double(index) / Double(totalFiles)
+
+            let currentProgress =
+                0.10 + ratioBefore * 0.20
+
+            log(
+                "복사 중: \(index + 1)/\(totalFiles) - \(relativeURL)",
+                progress: currentProgress,
+                handler: progress
+            )
 
             try fm.createDirectory(
                 at: targetURL.deletingLastPathComponent(),
@@ -314,21 +310,12 @@ final class SigningService {
                 )
             }
 
-            let values = try fileURL.resourceValues(
-                forKeys: [.fileSizeKey]
-            )
-
-            copiedBytes += Int64(
-                values.fileSize ?? 0
-            )
-
-            let ratio = Double(index + 1) / Double(totalFiles)
-
-            let currentProgress = 0.10 + ratio * 0.20
+            let ratioAfter =
+                Double(index + 1) / Double(totalFiles)
 
             log(
-                "복사 중: \(index + 1)/\(totalFiles) - \(relativeURL)",
-                progress: currentProgress,
+                "복사 완료: \(index + 1)/\(totalFiles) - \(relativeURL)",
+                progress: 0.10 + ratioAfter * 0.20,
                 handler: progress
             )
         }
@@ -339,7 +326,7 @@ final class SigningService {
             handler: progress
         )
 
-        // MARK: - Framework 검색
+        // MARK: Find Frameworks
 
         log(
             "Framework 검색 중",
@@ -352,6 +339,7 @@ final class SigningService {
         )
 
         guard !frameworks.isEmpty else {
+
             throw NSError(
                 domain: "NX2AppleSigner",
                 code: 1007,
@@ -368,7 +356,7 @@ final class SigningService {
             handler: progress
         )
 
-        // MARK: - 동일 이름 충돌 검사
+        // MARK: Duplicate Check
 
         let groupedFrameworks = Dictionary(
             grouping: frameworks,
@@ -379,34 +367,37 @@ final class SigningService {
             $0.value.count > 1
         }
 
-        if !duplicateNames.isEmpty {
+        for name in duplicateNames.keys.sorted() {
 
-            for name in duplicateNames.keys {
-
-                log(
-                    "동일 이름 Framework 발견: \(name) - 경로 충돌로 처리하지 않음",
-                    progress: 0.35,
-                    handler: progress
-                )
-            }
+            log(
+                "동일 이름 Framework 발견: \(name) - 처리 제외",
+                progress: 0.35,
+                handler: progress
+            )
         }
 
         let validFrameworks = frameworks.filter {
             groupedFrameworks[$0.lastPathComponent]?.count == 1
         }
 
-        result.failed += frameworks.count - validFrameworks.count
-
-        // MARK: - Framework 서명
+        result.failed +=
+            frameworks.count - validFrameworks.count
 
         let totalFrameworks = validFrameworks.count
 
+        // MARK: Framework Signing
+
         for (index, frameworkURL) in validFrameworks.enumerated() {
 
-            let frameworkName = frameworkURL.lastPathComponent
+            let frameworkName =
+                frameworkURL.lastPathComponent
 
-            let baseProgress = 0.36 +
-                (Double(index) / Double(max(totalFrameworks, 1))) * 0.60
+            let baseProgress =
+                0.36 +
+                (
+                    Double(index)
+                    / Double(max(totalFrameworks, 1))
+                ) * 0.60
 
             log(
                 "서명 시작: \(frameworkName)",
@@ -435,11 +426,13 @@ final class SigningService {
                     handler: progress
                 )
 
-                // 저장 위치에 Framework 이름만 사용
-                // 원본 상위 폴더 경로는 포함하지 않음
+                // MARK: Output Location
 
                 let outputURL = destinationURL
-                    .appendingPathComponent(frameworkName)
+                    .appendingPathComponent(
+                        frameworkName,
+                        isDirectory: true
+                    )
 
                 log(
                     "저장 대상: \(outputURL.lastPathComponent)",
@@ -447,12 +440,12 @@ final class SigningService {
                     handler: progress
                 )
 
-                if fm.fileExists(
-                    atPath: outputURL.path
-                ) {
+                // MARK: Existing Framework Check
+
+                if fm.fileExists(atPath: outputURL.path) {
 
                     log(
-                        "기존 파일 검사: \(frameworkName)",
+                        "기존 Framework 검사: \(frameworkName)",
                         progress: baseProgress + 0.25,
                         handler: progress
                     )
@@ -465,12 +458,13 @@ final class SigningService {
                         frameworkURL
                     )
 
+                    // 동일한 결과라면 기존 파일 유지
                     if existingHash == newHash {
 
                         result.skipped += 1
 
                         log(
-                            "동일 파일 확인 - 저장 건너뜀: \(frameworkName)",
+                            "동일 파일 확인 - 기존 파일 유지 및 스킵: \(frameworkName)",
                             progress: baseProgress + 0.30,
                             handler: progress
                         )
@@ -478,13 +472,16 @@ final class SigningService {
                         continue
                     }
 
+                    // MARK: Backup Existing Framework
+
                     let backupURL = workspace
                         .appendingPathComponent(
-                            "Backup-\(UUID().uuidString)"
+                            "Backup-\(UUID().uuidString)",
+                            isDirectory: true
                         )
 
                     log(
-                        "기존 파일 백업: \(frameworkName)",
+                        "기존 Framework 백업: \(frameworkName)",
                         progress: baseProgress + 0.30,
                         handler: progress
                     )
@@ -508,7 +505,7 @@ final class SigningService {
                         result.replaced += 1
 
                         log(
-                            "기존 파일 교체 완료: \(frameworkName)",
+                            "기존 Framework 교체 완료: \(frameworkName)",
                             progress: baseProgress + 0.35,
                             handler: progress
                         )
@@ -529,6 +526,8 @@ final class SigningService {
 
                 } else {
 
+                    // MARK: New Framework
+
                     log(
                         "새 Framework 저장 중: \(frameworkName)",
                         progress: baseProgress + 0.30,
@@ -543,7 +542,7 @@ final class SigningService {
                     result.success += 1
 
                     log(
-                        "저장 완료: \(frameworkName)",
+                        "새 Framework 저장 완료: \(frameworkName)",
                         progress: baseProgress + 0.35,
                         handler: progress
                     )
@@ -567,12 +566,20 @@ final class SigningService {
                     )
 
                     let failedURL = failedFolder
-                        .appendingPathComponent(frameworkName)
+                        .appendingPathComponent(
+                            frameworkName,
+                            isDirectory: true
+                        )
 
-                    try? fm.copyItem(
-                        at: frameworkURL,
-                        to: failedURL
-                    )
+                    if !fm.fileExists(
+                        atPath: failedURL.path
+                    ) {
+
+                        try? fm.copyItem(
+                            at: frameworkURL,
+                            to: failedURL
+                        )
+                    }
 
                     log(
                         "실패한 Framework 보존: \(frameworkName)",
@@ -582,6 +589,8 @@ final class SigningService {
                 }
             }
         }
+
+        // MARK: Finish
 
         log(
             "전체 작업 완료",
@@ -608,6 +617,33 @@ final class SigningService {
         return result
     }
 
+    // MARK: - Relative Path
+
+    private func relativePath(
+        of url: URL,
+        under root: URL
+    ) -> String {
+
+        let rootPath = root.standardizedFileURL.path
+        let filePath = url.standardizedFileURL.path
+
+        guard filePath.hasPrefix(rootPath) else {
+            return url.lastPathComponent
+        }
+
+        var relative = String(
+            filePath.dropFirst(rootPath.count)
+        )
+
+        if relative.hasPrefix("/") {
+            relative.removeFirst()
+        }
+
+        return relative
+    }
+
+    // MARK: - Find Frameworks
+
     private func findFrameworks(
         in directory: URL
     ) -> [URL] {
@@ -617,9 +653,7 @@ final class SigningService {
             includingPropertiesForKeys: [
                 .isDirectoryKey
             ],
-            options: [
-                .skipsHiddenFiles
-            ]
+            options: []
         ) else {
             return []
         }
@@ -628,7 +662,7 @@ final class SigningService {
 
         for case let url as URL in enumerator {
 
-            if url.pathExtension == "framework" {
+            if url.pathExtension.lowercased() == "framework" {
 
                 frameworks.append(url)
 
@@ -636,53 +670,109 @@ final class SigningService {
             }
         }
 
-        return frameworks
+        return frameworks.sorted {
+            $0.path < $1.path
+        }
     }
+
+    // MARK: - Stable Directory Hash
 
     private func directoryHash(
         _ directory: URL
     ) throws -> String {
 
-        let enumerator = FileManager.default.enumerator(
+        let fm = FileManager.default
+
+        guard let enumerator = fm.enumerator(
             at: directory,
             includingPropertiesForKeys: [
-                .isRegularFileKey
+                .isRegularFileKey,
+                .isDirectoryKey
             ],
-            options: [
-                .skipsHiddenFiles
-            ]
-        )
+            options: []
+        ) else {
 
-        var combinedData = Data()
+            throw NSError(
+                domain: "NX2AppleSigner",
+                code: 1008,
+                userInfo: [
+                    NSLocalizedDescriptionKey:
+                        "Framework 비교를 위한 파일 목록을 읽을 수 없습니다."
+                ]
+            )
+        }
 
-        while let fileURL = enumerator?.nextObject() as? URL {
+        var fileEntries: [(path: String, url: URL)] = []
+
+        while let fileURL = enumerator.nextObject() as? URL {
 
             let values = try fileURL.resourceValues(
-                forKeys: [.isRegularFileKey]
+                forKeys: [
+                    .isRegularFileKey,
+                    .isDirectoryKey
+                ]
             )
+
+            // 서명 폴더는 비교 대상에서 제외
+            if fileURL.lastPathComponent == "_CodeSignature" {
+
+                enumerator.skipDescendants()
+                continue
+            }
 
             guard values.isRegularFile == true else {
                 continue
             }
 
-            let relativePath = String(
-                fileURL.path.dropFirst(
-                    directory.path.count
+            let relative = relativePath(
+                of: fileURL,
+                under: directory
+            )
+
+            fileEntries.append(
+                (
+                    path: relative,
+                    url: fileURL
                 )
-            )
-
-            combinedData.append(
-                Data(relativePath.utf8)
-            )
-
-            combinedData.append(
-                try Data(contentsOf: fileURL)
             )
         }
 
-        let digest = SHA256.hash(
-            data: combinedData
-        )
+        // 파일 열거 순서가 달라도 동일한 결과가 나오도록 정렬
+        fileEntries.sort {
+            $0.path < $1.path
+        }
+
+        var hasher = SHA256()
+
+        for entry in fileEntries {
+
+            let pathData = Data(
+                entry.path.utf8
+            )
+
+            let fileData = try Data(
+                contentsOf: entry.url,
+                options: [.mappedIfSafe]
+            )
+
+            // 경로와 데이터 경계 구분
+            var pathLength = UInt64(pathData.count).bigEndian
+            var dataLength = UInt64(fileData.count).bigEndian
+
+            withUnsafeBytes(of: &pathLength) {
+                hasher.update(data: Data($0))
+            }
+
+            hasher.update(data: pathData)
+
+            withUnsafeBytes(of: &dataLength) {
+                hasher.update(data: Data($0))
+            }
+
+            hasher.update(data: fileData)
+        }
+
+        let digest = hasher.finalize()
 
         return digest.map {
             String(format: "%02x", $0)
